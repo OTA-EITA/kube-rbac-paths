@@ -1,0 +1,24 @@
+name: depbot
+
+# Weekly dependency update pull requests by https://github.com/OTA-EITA/depbot.
+# GitHub Actions are kept pinned to SHAs separately, because the default
+# GITHUB_TOKEN cannot change workflow files.
+on:
+  schedule:
+    - cron: "0 0 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: OTA-EITA/depbot@0b39babf35c7c2f97a6c5292ac3d62c975b94936 # v0.2.0
+        with:
+          ecosystems: gomod,docker

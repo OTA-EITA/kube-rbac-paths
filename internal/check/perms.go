@@ -53,9 +53,31 @@ var workloadTargets = []target{
 	{"batch", "cronjobs", []string{"create"}},
 }
 
+// templateTargets are the workloads whose Pod template can be changed after
+// creation; the controller then creates Pods from the new template. A Job's
+// template is immutable (only its scheduling directives can change), so jobs
+// are left out.
+var templateTargets = []target{
+	{"", "replicationcontrollers", []string{"update", "patch"}},
+	{"apps", "deployments", []string{"update", "patch"}},
+	{"apps", "daemonsets", []string{"update", "patch"}},
+	{"apps", "statefulsets", []string{"update", "patch"}},
+	{"apps", "replicasets", []string{"update", "patch"}},
+	{"batch", "cronjobs", []string{"update", "patch"}},
+}
+
+// podTargets change a running Pod. Its serviceAccountName cannot change, but
+// a container image can, and an ephemeral container can be added; both run
+// with the Pod's ServiceAccount.
+var podTargets = []target{
+	{"", "pods", []string{"update", "patch"}},
+	{"", "pods/ephemeralcontainers", []string{"update", "patch"}},
+}
+
 var permChecks = []permCheck{
 	{SecretsRead, []target{{"", "secrets", []string{"get", "list", "watch"}}}, tiered(High, Medium, Low)},
 	{WorkloadCreate, workloadTargets, tiered(Medium, Low, Low)},
+	{WorkloadModify, append(slices.Clone(templateTargets), podTargets...), tiered(Medium, Low, Low)},
 	{PersistentVolume, []target{{"", "persistentvolumes", []string{"create"}}}, tiered(Medium, Medium, Low)},
 	{NodesProxy, []target{{"", "nodes/proxy", []string{"get", "create", "update", "patch", "delete"}}}, tiered(High, High, Medium)},
 	{EscalateBind, []target{
@@ -86,6 +108,7 @@ func (a *auditor) permissionFindings(s rbac.Subject) []Finding {
 	}
 	grants := a.g.DirectGrants(s)
 	out := wildcardFindings(s, grants)
+	creates := map[string]bool{} // scopes with a workload creation finding
 	for _, pc := range permChecks {
 		var ms []rbac.Match
 		for _, t := range pc.targets {
@@ -95,6 +118,16 @@ func (a *auditor) permissionFindings(s rbac.Subject) []Finding {
 		for _, grp := range groups {
 			if len(groups) > 1 && coveredByClusterWide(grp, groups) {
 				continue
+			}
+			switch pc.id {
+			case WorkloadCreate:
+				creates[grp.key] = true
+			case WorkloadModify:
+				// Creating a workload already reaches every ServiceAccount
+				// and volume that changing one does.
+				if creates[""] || creates[grp.key] {
+					continue
+				}
 			}
 			out = append(out, permFinding(pc, s, grp))
 		}

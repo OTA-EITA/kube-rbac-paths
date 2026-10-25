@@ -19,7 +19,7 @@ func sample() check.Result {
 		Subjects: 2, Excluded: 1, Duplicates: 1,
 		Unresolved: []string{"RoleBinding team/x (rbac.yaml:40) references Role gone"},
 		Admins: []check.Admin{{
-			Subject: alice, Via: &bot, Reason: "can create pods in namespace team, where ServiceAccount team/bot lives",
+			Subject: alice, Via: &bot, Chain: []rbac.Subject{bot}, Reason: "can create pods in namespace team, where ServiceAccount team/bot lives",
 			Evidence: []check.Evidence{{Text: "RoleBinding team/edit binds ClusterRole edit to User alice", Source: binding}, {Text: "ClusterRole edit", Source: builtin}},
 			UsedBy:   []check.Evidence{{Text: "runs as it: Deployment team/bot", Source: rbac.Source{File: "deploy.yaml", Line: 1}}},
 		}},
@@ -94,7 +94,8 @@ func TestJSON(t *testing.T) {
 			} `json:"location"`
 		} `json:"findings"`
 		Admins []struct {
-			Via *rbac.Subject `json:"via"`
+			Via   *rbac.Subject  `json:"via"`
+			Chain []rbac.Subject `json:"chain"`
 		} `json:"effectiveAdmins"`
 	}
 	if err := json.Unmarshal([]byte(out), &got); err != nil {
@@ -107,7 +108,7 @@ func TestJSON(t *testing.T) {
 	if f.Check != "KRP003" || f.Severity != "medium" || f.Title != "Read access to Secrets" || !strings.HasSuffix(f.Docs, "#listing-secrets") || f.Why == "" || f.Location.Line != 10 {
 		t.Errorf("finding = %+v", f)
 	}
-	if len(got.Admins) != 1 || got.Admins[0].Via == nil {
+	if len(got.Admins) != 1 || got.Admins[0].Via == nil || len(got.Admins[0].Chain) != 1 || got.Admins[0].Chain[0].Name != "bot" {
 		t.Errorf("admins = %+v", got.Admins)
 	}
 	empty := render(t, "json", check.Result{}, Meta{})

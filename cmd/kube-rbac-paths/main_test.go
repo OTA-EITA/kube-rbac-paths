@@ -25,13 +25,14 @@ func TestRiskyFixtures(t *testing.T) {
 	if code != exitFindings {
 		t.Fatalf("exit = %d, want 1\n%s", code, out)
 	}
-	for _, id := range []string{"KRP001", "KRP002", "KRP003", "KRP004", "KRP005", "KRP006", "KRP007", "KRP008", "KRP009", "KRP010", "KRP011", "KRP012", "KRP013", "KRP014", "KRP015"} {
+	for _, id := range []string{"KRP001", "KRP002", "KRP003", "KRP004", "KRP005", "KRP006", "KRP007", "KRP008", "KRP009", "KRP010", "KRP011", "KRP012", "KRP013", "KRP014", "KRP015", "KRP016"} {
 		if !strings.Contains(out, " "+id+" ") {
 			t.Errorf("risky fixtures should trigger %s", id)
 		}
 	}
 	for _, want := range []string{
-		"Effective cluster-admin (5)",
+		"Effective cluster-admin (8)",
+		"User bob@example.com\n    can patch deployments in namespace delivery, where ServiceAccount delivery/pipeline lives, so it can set serviceAccountName in their Pod template to that ServiceAccount; ServiceAccount delivery/pipeline can create tokens for ServiceAccount infra/cluster-operator, and ServiceAccount infra/cluster-operator holds every verb",
 		"User alice@example.com\n    can create pods, replicationcontrollers, deployments and 5 more in namespace team-a, where ServiceAccount team-a/release-bot lives",
 		"runs as it: CronJob team-a/release",
 	} {

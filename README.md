@@ -220,7 +220,7 @@ Most of these read a live cluster, which sees bindings that are not in any repos
 ```sh
 make test    # go test -race
 make cover
-make lint    # golangci-lint v2.6.1
+make lint    # golangci-lint v2.15.0
 make build
 ```
 

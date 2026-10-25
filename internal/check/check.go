@@ -86,6 +86,7 @@ const (
 	NamespaceModify     = "KRP013"
 	EffectiveAdmin      = "KRP014"
 	BroadGroupBinding   = "KRP015"
+	WorkloadModify      = "KRP016"
 )
 
 // Checks lists every check, in ID order.
@@ -117,8 +118,8 @@ var Checks = []Check{
 	{
 		ID: ServiceAccountPivot, Title: "Can act as a more privileged ServiceAccount", Severities: "the highest severity among the ServiceAccount's own findings (if it is cluster-admin-equivalent, KRP014 is reported instead)",
 		Section: "Workload creation", Anchor: "workload-creation",
-		Why: "creating a Pod that uses another ServiceAccount, requesting a token for it, or impersonating it gives the subject that ServiceAccount's permissions.",
-		Fix: "move the privileged ServiceAccount to a namespace the subject cannot create workloads or tokens in, or remove the subject's create/impersonate permission there.",
+		Why: "creating a Pod that uses another ServiceAccount, changing a workload's Pod template to use it, changing the image of a Pod that runs as it, requesting a token for it, or impersonating it gives the subject that ServiceAccount's permissions; the chain is followed through up to four ServiceAccounts.",
+		Fix: "move the privileged ServiceAccount to a namespace the subject cannot create or change workloads or tokens in, or remove the subject's create, update, patch or impersonate permission there.",
 	},
 	{
 		ID: PersistentVolume, Title: "PersistentVolume creation", Severities: "medium",
@@ -171,7 +172,7 @@ var Checks = []Check{
 	{
 		ID: EffectiveAdmin, Title: "Effective cluster-admin", Severities: "high",
 		Section: "Privilege escalation risks", Anchor: "privilege-escalation-risks",
-		Why: "the subject can do anything in the cluster, directly or in one step through a ServiceAccount it can act as.",
+		Why: "the subject can do anything in the cluster, directly or through a chain of up to four ServiceAccounts it can act as.",
 		Fix: "break the chain shown in the evidence: narrow the role, scope the binding to a namespace, or separate the ServiceAccount.",
 	},
 	{
@@ -179,6 +180,12 @@ var Checks = []Check{
 		Section: "Hardening", Anchor: "hardening",
 		Why: "system:unauthenticated is anyone who can reach the API server; system:authenticated and system:serviceaccounts are every user or every Pod.",
 		Fix: "bind the role to the specific users, groups or ServiceAccounts that need it.",
+	},
+	{
+		ID: WorkloadModify, Title: "Workload modification", Severities: "medium (all namespaces), low (one namespace or named objects); not reported where the subject can already create workloads",
+		Section: "Workload creation", Anchor: "workload-creation",
+		Why: "changing the Pod template of a Deployment, DaemonSet, StatefulSet, ReplicaSet, ReplicationController or CronJob makes its controller create Pods from it, so update or patch can set serviceAccountName to any ServiceAccount in the namespace, as creating a workload can; update or patch on a Pod can replace a container image, and pods/ephemeralcontainers can add a container, which then runs with that Pod's ServiceAccount. A Job's Pod template cannot be changed.",
+		Fix: "give update and patch on workloads only in namespaces that hold no ServiceAccount more privileged than the subject (resourceNames do not help: one workload it can change can run as any ServiceAccount there), and enforce the Baseline or Restricted Pod Security Standard there.",
 	},
 }
 

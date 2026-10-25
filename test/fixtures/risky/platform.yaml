@@ -1,0 +1,124 @@
+# Assorted permissions from the good-practices list of escalation risks.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: support-impersonation
+rules:
+  - apiGroups: [""]
+    resources: ["users", "groups"]
+    verbs: ["impersonate"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: support-impersonation
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: support-impersonation
+subjects:
+  - kind: Group
+    name: support
+    apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: token-minter
+rules:
+  - apiGroups: [""]
+    resources: ["serviceaccounts/token"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: token-minter
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: token-minter
+subjects:
+  - kind: ServiceAccount
+    name: token-minter
+    namespace: tools
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: storage-admin
+rules:
+  - apiGroups: [""]
+    resources: ["persistentvolumes"]
+    verbs: ["get", "list", "create", "delete"]
+  - apiGroups: ["certificates.k8s.io"]
+    resources: ["certificatesigningrequests/approval"]
+    verbs: ["update"]
+  - apiGroups: ["admissionregistration.k8s.io"]
+    resources: ["mutatingwebhookconfigurations"]
+    verbs: ["create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: storage-admin
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: storage-admin
+subjects:
+  - kind: User
+    name: bob@example.com
+    apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: dev-lead
+  namespace: dev
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "patch"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["roles"]
+    verbs: ["escalate", "update"]
+  - apiGroups: ["apps"]
+    resources: ["*"]
+    verbs: ["*"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: dev-lead
+  namespace: dev
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: dev-lead
+subjects:
+  - kind: Group
+    name: dev-leads
+    apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: config-reader
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: config-reader-everyone
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: config-reader
+subjects:
+  - kind: Group
+    name: system:authenticated
+    apiGroup: rbac.authorization.k8s.io

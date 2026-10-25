@@ -213,4 +213,4 @@ Dependencies are `k8s.io/api` and `k8s.io/apimachinery` v0.34.1 (types only, no 
 
 ## License
 
-MIT. `internal/bootstrap/policy/` holds unmodified copies of the Kubernetes v1.34.1 default RBAC policy test data (`plugin/pkg/auth/authorizer/rbac/bootstrappolicy/testdata`), which is Apache-2.0 licensed by The Kubernetes Authors.
+MIT. `internal/bootstrap/policy/` holds unmodified copies of the Kubernetes v1.34.1 default RBAC policy test data (`plugin/pkg/auth/authorizer/rbac/bootstrappolicy/testdata`), which is Apache-2.0 licensed by The Kubernetes Authors; the license text is in [`internal/bootstrap/policy/LICENSE`](internal/bootstrap/policy/LICENSE).

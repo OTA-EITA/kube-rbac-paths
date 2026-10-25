@@ -33,7 +33,7 @@ jobs:
           go-version-file: go.mod
       - uses: golangci/golangci-lint-action@4afd733a84b1f43292c63897423277bb7f4313a9 # v8
         with:
-          version: v2.6.1
+          version: v2.15.0
 
   gha-guard:
     # Audits this repository's workflows with https://github.com/OTA-EITA/gha-guard.

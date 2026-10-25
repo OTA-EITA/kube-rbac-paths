@@ -1,0 +1,7 @@
+/bin/
+/dist/
+/kube-rbac-paths
+*.test
+coverage.out
+*.sarif
+.DS_Store

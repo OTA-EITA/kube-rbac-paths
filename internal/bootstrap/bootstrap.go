@@ -30,7 +30,7 @@ var (
 )
 
 func load() {
-	for _, f := range []string{"cluster-roles.yaml", "namespace-roles.yaml"} {
+	for _, f := range []string{"cluster-roles.yaml", "controller-roles.yaml", "namespace-roles.yaml"} {
 		data, err := policy.ReadFile("policy/" + f)
 		if err != nil {
 			panic(err)

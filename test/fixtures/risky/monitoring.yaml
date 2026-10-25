@@ -1,0 +1,72 @@
+# A monitoring agent that reads Secrets everywhere and uses nodes/proxy.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: metrics-agent
+rules:
+  - apiGroups: [""]
+    resources: ["nodes", "nodes/proxy", "services", "endpoints", "pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: metrics-agent
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: metrics-agent
+subjects:
+  - kind: ServiceAccount
+    name: metrics-agent
+    namespace: monitoring
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: metrics-agent
+  namespace: monitoring
+spec:
+  selector:
+    matchLabels: {app: metrics-agent}
+  template:
+    metadata:
+      labels: {app: metrics-agent}
+    spec:
+      serviceAccountName: metrics-agent
+      containers:
+        - name: agent
+          image: example.com/agent:1.0
+---
+# On-call engineers can debug in the monitoring namespace. That lets them
+# run Pods as, request tokens for, and impersonate the agent's ServiceAccount,
+# and so read every Secret in the cluster.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: oncall-debug
+  namespace: monitoring
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "serviceaccounts/token"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["serviceaccounts"]
+    verbs: ["impersonate"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: oncall-debug
+  namespace: monitoring
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: oncall-debug
+subjects:
+  - kind: Group
+    name: oncall
+    apiGroup: rbac.authorization.k8s.io

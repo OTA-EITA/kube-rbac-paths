@@ -1,0 +1,74 @@
+name: kube-rbac-paths
+description: Review a pull request's Kubernetes RBAC changes and report only the risky permissions and cluster-admin paths it adds
+author: OTA-EITA
+branding:
+  icon: shield
+  color: blue
+
+inputs:
+  base:
+    description: Manifests before the change (file or directory, e.g. a checkout of the base branch)
+    required: true
+  head:
+    description: Manifests after the change (file or directory)
+    required: true
+  fail-on:
+    description: Fail on new findings at least this severe (high, medium, low or none)
+    default: medium
+  namespace:
+    description: Namespace for namespaced objects without metadata.namespace
+    default: default
+  include-system:
+    description: Also report the cluster's built-in identities (true or false)
+    default: "false"
+  sarif-file:
+    description: Where to write the SARIF report
+    default: kube-rbac-paths.sarif
+
+outputs:
+  sarif-file:
+    description: Path of the SARIF report, for github/codeql-action/upload-sarif
+    value: ${{ steps.audit.outputs.sarif-file }}
+  findings:
+    description: Number of new findings
+    value: ${{ steps.audit.outputs.findings }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+      with:
+        go-version: stable
+        cache: false
+    - name: Install kube-rbac-paths
+      shell: bash
+      env:
+        REF: ${{ github.action_ref }}
+      run: go install "github.com/OTA-EITA/kube-rbac-paths/cmd/kube-rbac-paths@${REF:-latest}"
+    - name: Audit
+      id: audit
+      shell: bash
+      env:
+        BASE: ${{ inputs.base }}
+        HEAD: ${{ inputs.head }}
+        FAIL_ON: ${{ inputs.fail-on }}
+        NAMESPACE: ${{ inputs.namespace }}
+        INCLUDE_SYSTEM: ${{ inputs.include-system }}
+        SARIF_FILE: ${{ inputs.sarif-file }}
+      run: |
+        bin="$(go env GOPATH)/bin/kube-rbac-paths"
+        args=(diff --base "$BASE" --head "$HEAD" --namespace "$NAMESPACE")
+        if [ "$INCLUDE_SYSTEM" = "true" ]; then args+=(--include-system); fi
+        code=0
+        "$bin" "${args[@]}" --format sarif --fail-on "$FAIL_ON" > "$SARIF_FILE" || code=$?
+        "$bin" "${args[@]}" --format markdown --fail-on none >> "$GITHUB_STEP_SUMMARY" || true
+        {
+          echo "sarif-file=$SARIF_FILE"
+          echo "findings=$(jq '.runs[0].results | length' "$SARIF_FILE" 2>/dev/null || echo 0)"
+          echo "code=$code"
+        } >> "$GITHUB_OUTPUT"
+    - name: Enforce threshold
+      shell: bash
+      env:
+        CODE: ${{ steps.audit.outputs.code }}
+      run: exit "$CODE"

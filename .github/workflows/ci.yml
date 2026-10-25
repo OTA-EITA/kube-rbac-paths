@@ -45,7 +45,7 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
-      - uses: OTA-EITA/gha-guard@647404df7b2c96877a2043a92e09382a1ee1dde9 # v0.1.2
+      - uses: OTA-EITA/gha-guard@c093554564f6b30b409a29e7f395e8f45755b9ba # v0.2.0
         id: guard
         with:
           fail-on: low

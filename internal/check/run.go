@@ -23,9 +23,12 @@ type Options struct {
 type Admin struct {
 	Subject rbac.Subject `json:"subject"`
 	// Via is the ServiceAccount the subject reaches admin through, if not direct.
-	Via      *rbac.Subject `json:"via,omitempty"`
-	Reason   string        `json:"reason"`
-	Evidence []Evidence    `json:"evidence"`
+	Via *rbac.Subject `json:"via,omitempty"`
+	// Chain lists the ServiceAccounts on the way there, in order; the last
+	// one is Via.
+	Chain    []rbac.Subject `json:"chain,omitempty"`
+	Reason   string         `json:"reason"`
+	Evidence []Evidence     `json:"evidence"`
 	// UsedBy lists the workloads that run as the subject (ServiceAccounts only).
 	UsedBy []Evidence `json:"usedBy,omitempty"`
 }

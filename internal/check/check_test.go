@@ -61,6 +61,10 @@ func deployment(ns, name, saName string) string {
 	return fmt.Sprintf("apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: %s\n  namespace: %s\nspec:\n  template:\n    spec:\n      serviceAccountName: %s\n", name, ns, saName)
 }
 
+func pod(ns, name, saName string) string {
+	return fmt.Sprintf("apiVersion: v1\nkind: Pod\nmetadata:\n  name: %s\n  namespace: %s\nspec:\n  serviceAccountName: %s\n", name, ns, saName)
+}
+
 func audit(t *testing.T, opts Options, docs ...string) Result {
 	t.Helper()
 	inv, err := loader.Parse("t.yaml", []byte(strings.Join(docs, "---\n")), loader.Options{})
@@ -118,6 +122,28 @@ func TestPermissionChecks(t *testing.T) {
 			WorkloadCreate, Medium, "and 5 more"},
 		{"create with resourceNames grants nothing", []string{clusterRole("r", rule(`""`, "pods", "create", "p")), crb("b", "r", alice)},
 			WorkloadCreate, None, ""},
+		{"workload patch cluster-wide", []string{clusterRole("r", rule(`"apps"`, "deployments", "patch")), crb("b", "r", alice)},
+			WorkloadModify, Medium, "User alice can patch deployments in every namespace"},
+		{"workload update in one namespace", []string{role("team", "r", rule(`"apps"`, "statefulsets", "get,update")), rb("team", "b", "Role", "r", alice)},
+			WorkloadModify, Low, "can update statefulsets in namespace team"},
+		{"cronjob update", []string{role("team", "r", rule(`"batch"`, "cronjobs", "update")), rb("team", "b", "Role", "r", alice)},
+			WorkloadModify, Low, "can update cronjobs in namespace team"},
+		{"named deployments", []string{role("team", "r", rule(`"apps"`, "deployments", "patch", "web")), rb("team", "b", "Role", "r", alice)},
+			WorkloadModify, Low, "(only web)"},
+		{"pod image patch", []string{role("team", "r", rule(`""`, "pods", "patch")), rb("team", "b", "Role", "r", alice)},
+			WorkloadModify, Low, "can patch pods in namespace team"},
+		{"ephemeral containers", []string{clusterRole("r", rule(`""`, "pods/ephemeralcontainers", "update")), crb("b", "r", alice)},
+			WorkloadModify, Medium, "can update pods/ephemeralcontainers in every namespace"},
+		{"job template is immutable", []string{role("team", "r", rule(`"batch"`, "jobs", "update,patch")), rb("team", "b", "Role", "r", alice)},
+			WorkloadModify, None, ""},
+		{"pod status is not the pod", []string{role("team", "r", rule(`""`, "pods/status", "update,patch")), rb("team", "b", "Role", "r", alice)},
+			WorkloadModify, None, ""},
+		{"modification adds nothing to creation in the same namespace", []string{role("team", "r", rule(`"apps"`, "deployments", "create,patch")), rb("team", "b", "Role", "r", alice)},
+			WorkloadModify, None, ""},
+		{"modification adds nothing to creation cluster-wide", []string{clusterRole("c", rule(`""`, "pods", "create")), crb("c", "c", alice), role("team", "r", rule(`"apps"`, "deployments", "patch")), rb("team", "b", "Role", "r", alice)},
+			WorkloadModify, None, ""},
+		{"creation in another namespace does not cover modification", []string{role("other", "c", rule(`""`, "pods", "create")), rb("other", "c", "Role", "c", alice), role("team", "r", rule(`"apps"`, "deployments", "patch")), rb("team", "b", "Role", "r", alice)},
+			WorkloadModify, Low, "in namespace team"},
 		{"persistent volumes", []string{clusterRole("r", rule(`""`, "persistentvolumes", "create")), crb("b", "r", alice)},
 			PersistentVolume, Medium, "can create persistentvolumes cluster-wide"},
 		{"persistent volumes through a RoleBinding", []string{clusterRole("r", rule(`""`, "persistentvolumes", "create")), rb("team", "b", "ClusterRole", "r", alice)},
@@ -390,6 +416,45 @@ func TestServiceAccountPivot(t *testing.T) {
 		{"target without notable permissions",
 			[]string{podCreator, rb("team", "a", "Role", "pods", alice), saObject("team", "plain"), role("team", "cm", rule(`""`, "configmaps", "get")), rb("team", "p", "Role", "cm", sa("team", "plain"))},
 			"", ""},
+		{"patching deployments in the namespace of an admin ServiceAccount",
+			append([]string{role("team", "d", rule(`"apps"`, "deployments", "get,patch")), rb("team", "a", "Role", "d", alice)}, privileged...),
+			EffectiveAdmin, "because it can patch deployments in namespace team, where ServiceAccount team/deployer lives, so it can set serviceAccountName in their Pod template to that ServiceAccount, and ServiceAccount team/deployer holds every verb"},
+		{"patching one named deployment still reaches every ServiceAccount",
+			append([]string{role("team", "d", rule(`"apps"`, "deployments", "update", "web")), rb("team", "a", "Role", "d", alice)}, privileged...),
+			EffectiveAdmin, "can update deployments (only web) in namespace team, where ServiceAccount team/deployer lives"},
+		{"updating cronjobs everywhere",
+			append([]string{clusterRole("cj", rule(`"batch"`, "cronjobs", "update")), crb("a", "cj", alice)}, privileged...),
+			EffectiveAdmin, "can update cronjobs in every namespace, including team, where ServiceAccount team/deployer lives"},
+		{"updating jobs does not change their Pods",
+			append([]string{role("team", "j", rule(`"batch"`, "jobs", "update,patch")), rb("team", "a", "Role", "j", alice)}, privileged...),
+			"", ""},
+		{"patching pods reaches the ServiceAccount of a running workload",
+			append([]string{role("team", "p", rule(`""`, "pods", "patch")), rb("team", "a", "Role", "p", alice), deployment("team", "web", "deployer")}, privileged...),
+			EffectiveAdmin, "can patch pods in namespace team, where Deployment team/web runs as ServiceAccount team/deployer, so it can replace a container image in those Pods, and ServiceAccount team/deployer holds"},
+		{"ephemeral containers reach the ServiceAccount of a running workload",
+			append([]string{role("team", "p", rule(`""`, "pods/ephemeralcontainers", "update")), rb("team", "a", "Role", "p", alice), pod("team", "web", "deployer")}, privileged...),
+			EffectiveAdmin, "so it can add an ephemeral container to those Pods"},
+		{"patching pods and ephemeral containers",
+			append([]string{role("team", "p", rule(`""`, "pods,pods/ephemeralcontainers", "patch")), rb("team", "a", "Role", "p", alice), pod("team", "web", "deployer")}, privileged...),
+			EffectiveAdmin, "so it can replace a container image or add an ephemeral container in those Pods"},
+		{"patching pods when nothing runs as the ServiceAccount",
+			append([]string{role("team", "p", rule(`""`, "pods", "patch")), rb("team", "a", "Role", "p", alice)}, privileged...),
+			"", ""},
+		{"patching a named Pod reaches its ServiceAccount",
+			append([]string{role("team", "p", rule(`""`, "pods", "patch", "web")), rb("team", "a", "Role", "p", alice), pod("team", "web", "deployer")}, privileged...),
+			EffectiveAdmin, "can patch pods (only web) in namespace team, where Pod team/web runs as ServiceAccount team/deployer"},
+		{"patching another named Pod",
+			append([]string{role("team", "p", rule(`""`, "pods", "patch", "other")), rb("team", "a", "Role", "p", alice), pod("team", "web", "deployer"), deployment("team", "other", "deployer")}, privileged...),
+			"", ""},
+		{"the admin path lists the other routes",
+			append([]string{role("team", "x", rule(`""`, "pods", "create"), rule(`"apps"`, "daemonsets", "patch")), rb("team", "a", "Role", "x", alice)}, privileged...),
+			EffectiveAdmin, ". It can also patch daemonsets in namespace team, to set serviceAccountName in their Pod template to that ServiceAccount"},
+		{"other routes are separated when one changes a workload",
+			append([]string{role("team", "x", rule(`""`, "pods,serviceaccounts/token", "create"), rule(`""`, "pods", "patch")), rb("team", "a", "Role", "x", alice), deployment("team", "web", "deployer")}, privileged...),
+			EffectiveAdmin, ". It can also patch pods of Deployment team/web to replace a container image; create tokens for ServiceAccount team/deployer"},
+		{"workload modification to a ServiceAccount with notable permissions",
+			append([]string{role("team", "d", rule(`"apps"`, "replicasets", "update")), rb("team", "a", "Role", "d", alice), saObject("team", "reader")}, secretReader...),
+			ServiceAccountPivot, "User alice can update replicasets in namespace team, where ServiceAccount team/reader lives, so it can set serviceAccountName in their Pod template to that ServiceAccount; ServiceAccount team/reader holds: read access to Secrets (high)"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -426,6 +491,129 @@ func TestServiceAccountPivot(t *testing.T) {
 				// that repeats the KRP014.
 				if len(findings(res, ServiceAccountPivot)) != 0 {
 					t.Errorf("KRP005 repeats KRP014:\n%s", dump(res))
+				}
+			}
+		})
+	}
+}
+
+// podsIn lets a ServiceAccount (or alice) create Pods in a namespace.
+func podsIn(ns, who, subject string) []string {
+	return []string{role(ns, "pods", rule(`""`, "pods", "create")), rb(ns, "pods-"+who, "Role", "pods", subject)}
+}
+
+func chain(docs ...[]string) []string {
+	var out []string
+	for _, d := range docs {
+		out = append(out, d...)
+	}
+	return out
+}
+
+func TestMultiHop(t *testing.T) {
+	alice := user("alice")
+	admin := func(ns, name string) []string {
+		return []string{saObject(ns, name), crb("admin-"+ns, "cluster-admin", sa(ns, name))}
+	}
+	secrets := func(ns, name string) []string {
+		return []string{saObject(ns, name), clusterRole("secrets-"+ns, rule(`""`, "secrets", "list")), crb("secrets-"+ns, "secrets-"+ns, sa(ns, name))}
+	}
+	tests := []struct {
+		name    string
+		docs    []string
+		id      string   // EffectiveAdmin, ServiceAccountPivot or "" for nothing
+		message []string // all must appear in alice's finding
+		via     []string // the ServiceAccounts of the admin chain
+		count   int      // number of alice's KRP005/KRP014 findings (default 1)
+	}{
+		{"two hops to cluster-admin",
+			chain(podsIn("a", "alice", alice), []string{saObject("a", "builder"), role("b", "t", rule(`""`, "serviceaccounts/token", "create")), rb("b", "t", "Role", "t", sa("a", "builder"))}, admin("b", "root")),
+			EffectiveAdmin, []string{"User alice effectively holds cluster-admin-equivalent permissions because it can create pods in namespace a, where ServiceAccount a/builder lives; ServiceAccount a/builder can create tokens for ServiceAccount b/root, and ServiceAccount b/root holds every verb on every resource"},
+			[]string{"a/builder", "b/root"}, 0},
+		{"four hops is the limit",
+			chain(podsIn("n1", "alice", alice), []string{saObject("n1", "s1")}, podsIn("n2", "n1-s1", sa("n1", "s1")), []string{saObject("n2", "s2")}, podsIn("n3", "n2-s2", sa("n2", "s2")), []string{saObject("n3", "s3")}, podsIn("n4", "n3-s3", sa("n3", "s3")), admin("n4", "root")),
+			EffectiveAdmin, []string{"ServiceAccount n1/s1 can create pods in namespace n2, where ServiceAccount n2/s2 lives; ServiceAccount n2/s2 can create pods in namespace n3", "ServiceAccount n3/s3 can create pods in namespace n4, where ServiceAccount n4/root lives, and ServiceAccount n4/root holds"},
+			[]string{"n1/s1", "n2/s2", "n3/s3", "n4/root"}, 0},
+		{"five hops are not followed",
+			chain(podsIn("n1", "alice", alice), []string{saObject("n1", "s1")}, podsIn("n2", "n1-s1", sa("n1", "s1")), []string{saObject("n2", "s2")}, podsIn("n3", "n2-s2", sa("n2", "s2")), []string{saObject("n3", "s3")}, podsIn("n4", "n3-s3", sa("n3", "s3")), []string{saObject("n4", "s4")}, podsIn("n5", "n4-s4", sa("n4", "s4")), admin("n5", "root")),
+			"", nil, nil, 0},
+		{"a cycle ends",
+			chain(podsIn("a", "alice", alice), []string{saObject("a", "x"), saObject("b", "y")}, podsIn("b", "a-x", sa("a", "x")), podsIn("a", "b-y", sa("b", "y"))),
+			"", nil, nil, 0},
+		{"the shortest chain is reported",
+			chain(podsIn("long", "alice", alice), []string{saObject("long", "l")}, podsIn("mid", "long-l", sa("long", "l")), []string{saObject("mid", "m")}, podsIn("top", "mid-m", sa("mid", "m")),
+				podsIn("short", "alice", alice), []string{saObject("short", "s")}, podsIn("top", "short-s", sa("short", "s")), admin("top", "root")),
+			EffectiveAdmin, []string{"ServiceAccount short/s can create pods in namespace top"}, []string{"short/s", "top/root"}, 0},
+		{"two hops to a Secret reader",
+			chain(podsIn("a", "alice", alice), []string{saObject("a", "x")}, podsIn("b", "a-x", sa("a", "x")), secrets("b", "reader")),
+			ServiceAccountPivot, []string{"User alice can create pods in namespace a, where ServiceAccount a/x lives; ServiceAccount a/x can create pods in namespace b, where ServiceAccount b/reader lives; ServiceAccount b/reader holds: read access to Secrets (high)"}, nil, 0},
+		{"a longer chain to nothing new is not reported",
+			chain(podsIn("a", "alice", alice), secrets("a", "r1"), podsIn("b", "a-r1", sa("a", "r1")), secrets("b", "r2")),
+			ServiceAccountPivot, []string{"ServiceAccount a/r1 holds: read access to Secrets (high)"}, nil, 0},
+		{"a longer chain to something new is reported",
+			chain(podsIn("a", "alice", alice), secrets("a", "r1"), podsIn("b", "a-r1", sa("a", "r1")), []string{saObject("b", "proxy"), clusterRole("proxy", rule(`""`, "nodes/proxy", "get")), crb("proxy", "proxy", sa("b", "proxy"))}),
+			ServiceAccountPivot, []string{"ServiceAccount a/r1 can create pods in namespace b, where ServiceAccount b/proxy lives; ServiceAccount b/proxy holds: nodes/proxy access (high)"}, nil, 2},
+		{"workload modification as a middle step",
+			chain(podsIn("a", "alice", alice), []string{saObject("a", "ci"), role("b", "d", rule(`"apps"`, "deployments", "patch")), rb("b", "d", "Role", "d", sa("a", "ci"))}, admin("b", "root")),
+			EffectiveAdmin, []string{"ServiceAccount a/ci can patch deployments in namespace b, where ServiceAccount b/root lives, so it can set serviceAccountName in their Pod template to that ServiceAccount, and ServiceAccount b/root holds"},
+			[]string{"a/ci", "b/root"}, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			res := audit(t, Options{}, tt.docs...)
+			var mine []Finding
+			for _, f := range res.Findings {
+				if f.Subject != nil && f.Subject.Name == "alice" && (f.CheckID == ServiceAccountPivot || f.CheckID == EffectiveAdmin) {
+					mine = append(mine, f)
+				}
+			}
+			want := tt.count
+			if want == 0 && tt.id != "" {
+				want = 1
+			}
+			if len(mine) != want {
+				t.Fatalf("want %d finding(s) for alice, got:\n%s", want, dump(res))
+			}
+			if tt.id == "" {
+				return
+			}
+			if mine[0].CheckID != tt.id {
+				t.Fatalf("want %s, got:\n%s", tt.id, dump(res))
+			}
+			for _, m := range tt.message {
+				if !strings.Contains(mine[0].Message, m) {
+					t.Errorf("message lacks %q:\n%s", m, mine[0].Message)
+				}
+			}
+			var adm *Admin
+			for i, a := range res.Admins {
+				if a.Subject.Name == "alice" {
+					adm = &res.Admins[i]
+				}
+			}
+			if (tt.id == EffectiveAdmin) != (adm != nil) {
+				t.Fatalf("alice in the admin summary = %v", adm != nil)
+			}
+			if adm == nil {
+				return
+			}
+			var got []string
+			for _, s := range adm.Chain {
+				got = append(got, s.Namespace+"/"+s.Name)
+			}
+			if strings.Join(got, " ") != strings.Join(tt.via, " ") || adm.Via == nil || adm.Via.Key() != adm.Chain[len(adm.Chain)-1].Key() {
+				t.Errorf("chain = %v, via = %v, want %v", got, adm.Via, tt.via)
+			}
+			// Every hop's binding is part of the evidence.
+			for _, s := range adm.Chain[:len(adm.Chain)-1] {
+				found := false
+				for _, e := range adm.Evidence {
+					if strings.Contains(e.Text, "to ServiceAccount "+s.Namespace+"/"+s.Name) {
+						found = true
+					}
+				}
+				if !found {
+					t.Errorf("evidence lacks the binding of %s:\n%v", s, adm.Evidence)
 				}
 			}
 		})

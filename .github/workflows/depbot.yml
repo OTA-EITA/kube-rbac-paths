@@ -1,11 +1,11 @@
 name: depbot
 
-# Weekly dependency update pull requests by https://github.com/OTA-EITA/depbot.
+# Dependency update pull requests by https://github.com/OTA-EITA/depbot.
 # GitHub Actions are kept pinned to SHAs separately, because the default
 # GITHUB_TOKEN cannot change workflow files.
+# Manual only: this repository does not let Actions open pull requests, so
+# updates are made by hand and this workflow is run when that setting is on.
 on:
-  schedule:
-    - cron: "0 0 * * 1"
   workflow_dispatch:
 
 permissions:
